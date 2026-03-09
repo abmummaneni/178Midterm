@@ -1,3 +1,13 @@
+continuous_columns = [
+  "CGPA",
+  "Internships",
+  "Projects",
+  "Workshops/Certifications",
+  "AptitudeTestScore",
+  "SoftSkillsRating",
+  "SSC_Marks",
+  "HSC_Marks",
+];
 function draw_svg(container_id, margin, width, height) {
   svg = d3
     .select("#" + container_id)
@@ -112,22 +122,18 @@ function draw_scatter(data, svg, scale) {
 
 // Function that extracts the selected days and minimum/maximum values for each slider
 function get_params() {
-  // collect selected days
-  var day = [];
-  d3.selectAll(".day-selected").each(function () {
-    var attributeValue = d3.select(this).attr("value");
-    day.push(attributeValue);
+  // TODO: Discrete toggles (after they are defined on html side)
+
+  // get min and max values from all continuous-column sliders
+  var params = {};
+  continuous_columns.forEach(function (column) {
+    var slider = document.getElementById(column + "-slider");
+    if (slider && slider.noUiSlider) {
+      params[column] = slider.noUiSlider.get();
+    }
   });
 
-  // get min and max values from sliders
-  var wind_slider = document.getElementById("wind-slider");
-  var temp_slider = document.getElementById("temp-slider");
-  var humidity_slider = document.getElementById("humidity-slider");
-  var humidity = humidity_slider.noUiSlider.get();
-  var temp = temp_slider.noUiSlider.get();
-  var wind = wind_slider.noUiSlider.get();
-
-  return { day: day, humidity: humidity, temp: temp, wind: wind };
+  return params;
 }
 
 // Function that removes the old data points and redraws the scatterplot

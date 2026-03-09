@@ -86,14 +86,14 @@ def update():
     facet_results = duckdb.sql(facet_query).df()
 
     facet_values = facet_results["facet_value"].drop_duplicates().tolist()
-    facet_a_data = (
+    facet_left_data = (
         facet_results[facet_results["facet_value"] == facet_values[0]][
             ["x", "y"]
         ].values.tolist()
         if facet_values
         else []
     )
-    facet_b_data = (
+    facet_right_data = (
         facet_results[facet_results["facet_value"] == facet_values[1]][
             ["x", "y"]
         ].values.tolist()
@@ -102,8 +102,8 @@ def update():
     )
 
     return {
-        "facet_a_data": facet_a_data,
-        "facet_b_data": facet_b_data,
+        "facet_left_data": facet_left_data,
+        "facet_right_data": facet_right_data,
     }
 
 

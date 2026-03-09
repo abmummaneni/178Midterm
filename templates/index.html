@@ -1,0 +1,53 @@
+<html>
+<header>
+    <title>ForestFires</title>
+    <link href="static/css/nouislider.min.css" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="static/css/style.css" media="screen" />
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="static/js/nouislider.min.js"></script>
+    <script src="static/js/script.js"></script>
+</header>
+<body>
+  <div class = "container">
+    <div style="float: left">
+      <div><h1>Forest Fires</h1><div id="scatter"></div></div>
+      <div><h1>Number of Forest Fires by Month</h1><div id="bar"></div></div>
+    </div>
+
+    <div style="float: left; margin-left: 50px;">
+      <div id="days" style="margin-top:10px">
+        <h3>Day</h3>
+        {% for day in days%}
+          <input type="checkbox" class="checkboxDays day-selected" value="{{day}}" onchange="update_checked(this)" checked ><label>{{day}}</label>
+        {% endfor %}
+      </div>
+
+      <h3>Humidity</h3><div id="humidity-slider" style="width:400pt; display: inline-block"></div>
+      <h3>Temperature</h3><div id="temp-slider" style="width:400pt; display: inline-block"></div>
+      <h3>Wind</h3><div id="wind-slider" style="width:400pt; display: inline-block"></div>
+    </div>
+  </div>
+</body>
+
+<script>
+  margin = {top: 45, right: 30, bottom: 30, left: 45},
+  width = 460 - margin.left - margin.right,
+  height = 360 - margin.top - margin.bottom;
+
+  scatter_svg = draw_svg('scatter', margin, width, height)
+  scatter_scale = draw_axes('scatter', scatter_svg, width, height, {{scatter_ranges[:2]}}, {{scatter_ranges[2:]}}, false)
+  bar_svg = draw_svg('bar', margin, width, height)
+  bar_scale = draw_axes('bar', bar_svg, width, height, {{months|safe}}, [0, {{max_count}}], true)
+
+  {% for column, (min,max) in filter_ranges.items() %}
+    draw_slider('{{column}}', {{min}}, {{max}}, scatter_svg, bar_svg, scatter_scale, bar_scale)
+  {% endfor %}
+
+  update(scatter_svg, bar_svg, scatter_scale, bar_scale)
+  function update_checked(checkbox){
+    checkbox.classList.toggle('day-selected')
+    update(scatter_svg, bar_svg, scatter_scale, bar_scale)
+  }
+
+</script>
+</html>

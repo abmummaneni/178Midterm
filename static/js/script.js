@@ -14,7 +14,8 @@ function draw_svg(container_id, margin, width, height) {
         .append("svg")
         .attr("width", width + margin.left + margin.right)
         .attr("height", height + margin.top + margin.bottom)
-        .style("background-color", "#dbdad7")
+        .style("background-color", "#ffffff")
+        .style("border", "1px solid gray")
         .append("g")
         .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
     return svg;
@@ -122,7 +123,8 @@ function get_domain_from_data(data, index) {
         return [0, 1];
     }
 
-    const values = data.map(d => +d[index]);
+    const axis = index === 0 ? "x" : "y";
+    const values = data.map((d) => +d[axis]);
     let min = d3.min(values);
     let max = d3.max(values);
 
@@ -130,8 +132,8 @@ function get_domain_from_data(data, index) {
         min = min - 1;
         max = max + 1;
     }
-
-    return [min, max];
+    const pad = (max - min) * 0.02;
+    return [min - pad, max + pad];
 }
 
 function make_new_scale(width, height, data) {
@@ -152,7 +154,7 @@ function draw_slider(column, min, max) {
         start: [min, max],
         connect: true,
         tooltips: true,
-        step: 1,
+        step: column === "SoftSkillsRating" ? 0.1 : 1,
         range: { min: min, max: max },
     });
 
@@ -165,14 +167,24 @@ function draw_slider(column, min, max) {
 function draw_scatter(data, svg, scale) {
     const scaleX = scale.x;
     const scaleY = scale.y;
+    const displayMode = document.getElementById("display-mode").value;
+    const colorScale =
+        displayMode === "heatmap"
+            ? d3
+                  .scaleLinear()
+                  .domain(d3.extent(data, (d) => +(d.count || 1)))
+                  .range(["#cfe8ff", "#0b4f8a"])
+            : null;
     svg.selectAll(".dot")
-       .data(data)
-       .join("circle")
-       .attr("class", "dot")
-       .attr("cx", d => scaleX(+d[0]))
-       .attr("cy", d => scaleY(+d[1]))
-       .attr("r", 2.5)
-       .attr("fill", "#1f77b4")
+        .data(data)
+        .join("circle")
+        .attr("class", "dot")
+        .attr("cx", (d) => scaleX(+d.x))
+        .attr("cy", (d) => scaleY(+d.y))
+        .attr("r", (d) => (displayMode === "heatmap") ? +(d.count * 0.05 + 2.5) : 2.5)
+        .attr("fill", (d) =>
+            colorScale ? colorScale(+(d.count || 1)) : "#1f77b4",
+        );
 }
 
 function update_scatter(plot_name, data, svg, width, height, x_label, y_label) {
@@ -187,12 +199,11 @@ function update_scatter(plot_name, data, svg, width, height, x_label, y_label) {
     return new_scale;
 }
 
-// Function that extracts the selected days and minimum/maximum values for each slider
-// -------------------- PARAMS --------------------
-
 function get_selected_discrete_values(column) {
-    const checked = document.querySelectorAll(`input[data-column="${column}"]:checked`);
-    return Array.from(checked).map(cb => cb.value);
+    const checked = document.querySelectorAll(
+        `input[data-column="${column}"]:checked`,
+    );
+    return Array.from(checked).map((cb) => cb.value);
 }
 
 function get_params() {
@@ -202,6 +213,7 @@ function get_params() {
     params["x_column"] = document.getElementById("x-select").value;
     params["y_column"] = document.getElementById("y-select").value;
     params["facet"] = document.getElementById("facet-select").value;
+    params["display_mode"] = document.getElementById("display-mode").value;
 
     // sliders
     continuous_columns.forEach(function (column) {
@@ -212,26 +224,23 @@ function get_params() {
     });
 
     // discrete filters
-    params["ExtracurricularActivities"] = get_selected_discrete_values("ExtracurricularActivities");
-    params["PlacementTraining"] = get_selected_discrete_values("PlacementTraining");
+    params["ExtracurricularActivities"] = get_selected_discrete_values(
+        "ExtracurricularActivities",
+    );
+    console.log(params["ExtracurricularActivities"]);
+    params["PlacementTraining"] =
+        get_selected_discrete_values("PlacementTraining");
 
     return params;
 }
 
-
-// Function that removes the old data points and redraws the scatterplot
-//function update_scatter(data, svg, scale) {
-//    // remove old points
-//    svg.selectAll(".dot").remove();
-//    // draw new points
-//    draw_scatter(data, svg, scale);
-//}
+// Update both scatter plots
 function update_all() {
     update(
         window.left_scatter_svg,
         window.right_scatter_svg,
         window.plot_width,
-        window.plot_height
+        window.plot_height,
     );
 }
 
@@ -246,34 +255,38 @@ function update(left_scatter_svg, right_scatter_svg, width, height) {
         headers: new Headers({
             "content-type": "application/json",
         }),
-    })
-    .then(async function (response) {
+    }).then(async function (response) {
         const results = await response.json();
+        const facets = results["facets"] || [];
+        const leftFacet = facets[0] || { label: "", data: [] };
+        const rightFacet = facets[1] || { label: "", data: [] };
 
         window.left_scatter_scale = update_scatter(
             "scatter-left",
-            results["facet_left_data"],
+            leftFacet.data,
             left_scatter_svg,
             width,
             height,
             params["x_column"],
-            params["y_column"]
+            params["y_column"],
         );
 
         window.right_scatter_scale = update_scatter(
             "scatter-right",
-            results["facet_right_data"],
+            rightFacet.data,
             right_scatter_svg,
             width,
             height,
             params["x_column"],
-            params["y_column"]
+            params["y_column"],
         );
 
-        d3.select("#facet-left-title")
-            .text(params["facet"] + ": " + (results["facet_left_label"] || ""));
+        d3.select("#facet-left-title").text(
+            params["facet"] + ": " + leftFacet.label,
+        );
 
-        d3.select("#facet-right-title")
-            .text(params["facet"] + ": " + (results["facet_right_label"] || ""));
+        d3.select("#facet-right-title").text(
+            params["facet"] + ": " + rightFacet.label,
+        );
     });
 }

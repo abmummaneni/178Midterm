@@ -10,7 +10,7 @@
 </header>
 
 <body>
-  <div class="container" style="border: 1px solid gray; padding: 15px; width: 1250px; margin: 0 auto;">
+  <div class="container" style="border: 0px solid gray; padding: 15px; width: 1250px; margin: 0 auto;">
 
     <!-- top controls -->
     <div style="margin-bottom: 20px;">
@@ -33,6 +33,13 @@
         {% for col in discrete_columns %}
           <option value="{{ col }}" {% if col == "PlacementStatus" %}selected{% endif %}>{{ col }}</option>
         {% endfor %}
+      </select>
+
+      <label style="margin-left: 20px;">Display:</label>
+      <select id="display-mode" onchange="update_all()">
+        <option value="scatter" selected>Scatter</option>
+        <option value="jitter">Jitter</option>
+        <option value="heatmap">Heatmap</option>
       </select>
     </div>
 

@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request
 import duckdb
 import pandas as pd
+import random
 
 app = Flask(__name__)
 continuous_columns = [
@@ -18,6 +19,42 @@ discrete_columns = [
     "PlacementTraining",
     "PlacementStatus",
 ]
+
+
+def get_jitter_amount(series):
+    series = pd.to_numeric(series)
+    spread = series.max() - series.min()
+    return spread * 0.01 if spread else 0.1
+
+
+def transform_points(x_values, y_values, mode):
+    if len(x_values) == 0 or len(y_values) == 0:
+        return []
+
+    plot_df = pd.DataFrame({"x": x_values, "y": y_values})
+    plot_df["x"] = pd.to_numeric(plot_df["x"])
+    plot_df["y"] = pd.to_numeric(plot_df["y"])
+    jitterx = get_jitter_amount(plot_df["x"])
+    jittery = get_jitter_amount(plot_df["y"])
+
+    if mode == "jitter":
+        plot_df["x"] = plot_df["x"] + pd.Series(
+            [random.uniform(-jitterx, jitterx) for _ in plot_df.index],
+            index=plot_df.index,
+        )
+        plot_df["y"] = plot_df["y"] + pd.Series(
+            [random.uniform(-jittery, jittery) for _ in plot_df.index],
+            index=plot_df.index,
+        )
+        plot_df["size"] = 2.5
+        return plot_df.to_dict(orient="records")
+
+    if mode == "heatmap":
+        heatmap_df = plot_df.groupby(["x", "y"]).size().reset_index(name="count")
+        return heatmap_df.to_dict(orient="records")
+
+    plot_df["size"] = 2.5
+    return plot_df.to_dict(orient="records")
 
 
 @app.route("/")
@@ -72,6 +109,7 @@ def update():
     x_column = request_data["x_column"]
     y_column = request_data["y_column"]
     facet = request_data["facet"]
+    display_mode = request_data.get("display_mode", "scatter")
 
     # Continuous filters: only use columns that were actually sent
     continuous_clauses = []
@@ -86,7 +124,12 @@ def update():
     # Discrete filters
     discrete_clauses = []
     for column in discrete_columns:
-        if column in request_data and request_data[column]:
+        if column in request_data:
+            if not request_data[column]:
+                # If column has no values (both yes and no are unchecked)
+                # Return no data
+                return {"facets": []}
+
             values = ", ".join([f"'{value}'" for value in request_data[column]])
             discrete_clauses.append(f'"{column}" IN ({values})')
 
@@ -94,38 +137,30 @@ def update():
     predicate = " AND ".join(predicate_parts) if predicate_parts else "TRUE"
 
     facet_query = f'''
-        SELECT "{facet}" AS facet_value, "{x_column}" AS x, "{y_column}" AS y
-        FROM 'placementdata.csv'
-        WHERE {predicate}
-    '''
+      SELECT
+          CAST("{facet}" AS VARCHAR) AS facet_value,
+          LIST("{x_column}") AS x_values,
+          LIST("{y_column}") AS y_values
+      FROM 'placementdata.csv'
+      WHERE {predicate}
+      GROUP BY facet_value
+      ORDER BY facet_value
+  '''
 
     facet_results = duckdb.sql(facet_query).df()
+    facets = []
+    for _, facet_row in facet_results.iterrows():
+        facets.append(
+            {
+                "label": str(facet_row["facet_value"]),
+                "data": transform_points(
+                    facet_row["x_values"], facet_row["y_values"], display_mode
+                ),
+            }
+        )
 
-    facet_values = facet_results["facet_value"].drop_duplicates().tolist()
+    return {"facets": facets}
 
-    facet_left_label = facet_values[0] if len(facet_values) > 0 else ""
-    facet_right_label = facet_values[1] if len(facet_values) > 1 else ""
-
-    facet_left_data = (
-        facet_results[facet_results["facet_value"] == facet_left_label][["x", "y"]]
-        .values.tolist()
-        if facet_left_label
-        else []
-    )
-
-    facet_right_data = (
-        facet_results[facet_results["facet_value"] == facet_right_label][["x", "y"]]
-        .values.tolist()
-        if facet_right_label
-        else []
-    )
-
-    return {
-        "facet_left_data": facet_left_data,
-        "facet_right_data": facet_right_data,
-        "facet_left_label": facet_left_label,
-        "facet_right_label": facet_right_label,
-    }
 
 if __name__ == "__main__":
     app.run(debug=True, port=8000)

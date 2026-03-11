@@ -187,7 +187,84 @@ function draw_scatter(data, svg, scale) {
         );
 }
 
-function update_scatter(plot_name, data, svg, width, height, x_label, y_label) {
+function get_trendline_tooltip() {
+    return d3
+        .select("body")
+        .selectAll("#trendline-tooltip")
+        .data([null])
+        .join("div")
+        .attr("id", "trendline-tooltip")
+        .style("position", "absolute")
+        .style("display", "none")
+        .style("pointer-events", "none")
+        .style("padding", "6px 8px")
+        .style("background", "rgba(20, 20, 20, 0.9)")
+        .style("color", "#fff")
+        .style("border-radius", "4px")
+        .style("font-size", "12px")
+        .style("line-height", "1.4");
+}
+
+function draw_trendline(trendline, svg, scale) {
+    svg.selectAll(".trendline").remove();
+    svg.selectAll(".trendline-hit").remove();
+    if (!trendline || !trendline.points || trendline.points.length < 2) {
+        return;
+    }
+
+    const tooltip = get_trendline_tooltip();
+    const confidence = Math.max(0, Math.min(1, +trendline.r2 || 0));
+    const opacity = 0.1 + 0.9 * Math.sqrt(confidence);
+    const tooltipText =
+        `Slope: ${trendline.slope.toFixed(3)}<br>` +
+        `R^2: ${trendline.r2.toFixed(3)}`;
+
+    svg.append("line")
+        .attr("class", "trendline")
+        .attr("x1", scale.x(+trendline.points[0].x))
+        .attr("y1", scale.y(+trendline.points[0].y))
+        .attr("x2", scale.x(+trendline.points[1].x))
+        .attr("y2", scale.y(+trendline.points[1].y))
+        .attr("stroke", "#d1495b")
+        .attr("stroke-width", 2)
+        .attr("stroke-opacity", opacity);
+
+    svg.append("line")
+        .attr("class", "trendline-hit")
+        .attr("x1", scale.x(+trendline.points[0].x))
+        .attr("y1", scale.y(+trendline.points[0].y))
+        .attr("x2", scale.x(+trendline.points[1].x))
+        .attr("y2", scale.y(+trendline.points[1].y))
+        .attr("stroke", "transparent")
+        .attr("stroke-width", 10)
+        .style("cursor", "pointer")
+        .on("mouseenter", function (event) {
+            tooltip
+                .style("display", "block")
+                .html(tooltipText)
+                .style("left", `${event.pageX + 12}px`)
+                .style("top", `${event.pageY + 12}px`);
+        })
+        .on("mousemove", function (event) {
+            tooltip
+                .style("left", `${event.pageX + 12}px`)
+                .style("top", `${event.pageY + 12}px`);
+        })
+        .on("mouseleave", function () {
+            tooltip.style("display", "none");
+        });
+}
+
+function update_scatter(
+    plot_name,
+    data,
+    trendline,
+    svg,
+    width,
+    height,
+    x_label,
+    y_label,
+) {
     svg.selectAll(".dot").remove();
 
     const new_scale = make_new_scale(width, height, data);
@@ -195,6 +272,7 @@ function update_scatter(plot_name, data, svg, width, height, x_label, y_label) {
     update_axis_labels(plot_name, svg, x_label, y_label);
 
     draw_scatter(data, svg, new_scale);
+    draw_trendline(trendline, svg, new_scale);
 
     return new_scale;
 }
@@ -264,6 +342,7 @@ function update(left_scatter_svg, right_scatter_svg, width, height) {
         window.left_scatter_scale = update_scatter(
             "scatter-left",
             leftFacet.data,
+            leftFacet.trendline || null,
             left_scatter_svg,
             width,
             height,
@@ -274,6 +353,7 @@ function update(left_scatter_svg, right_scatter_svg, width, height) {
         window.right_scatter_scale = update_scatter(
             "scatter-right",
             rightFacet.data,
+            rightFacet.trendline || null,
             right_scatter_svg,
             width,
             height,

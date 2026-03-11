@@ -1,7 +1,8 @@
 from flask import Flask, render_template, request
 import duckdb
-import pandas as pd
-import random
+import numpy as np
+from scipy.stats import linregress
+from collections import Counter
 
 app = Flask(__name__)
 continuous_columns = [
@@ -22,39 +23,58 @@ discrete_columns = [
 
 
 def get_jitter_amount(series):
-    series = pd.to_numeric(series)
-    spread = series.max() - series.min()
-    return spread * 0.01 if spread else 0.1
+    spread = np.ptp(series)
+    return float(spread * 0.01 if spread else 0.1)
+
+
+def to_numeric_arrays(x_values, y_values):
+    x = np.asarray(x_values, dtype=float)
+    y = np.asarray(y_values, dtype=float)
+    return x, y
+
+
+def build_trendline(x_values, y_values):
+    if len(x_values) < 2 or len(y_values) < 2:
+        return None
+
+    x, y = to_numeric_arrays(x_values, y_values)
+    if np.all(x == x[0]):
+        return None
+
+    fit = linregress(x, y)
+    x_min = x.min()
+    x_max = x.max()
+    return {
+        "points": [
+            {"x": float(x_min), "y": float(fit.intercept + fit.slope * x_min)},
+            {"x": float(x_max), "y": float(fit.intercept + fit.slope * x_max)},
+        ],
+        "slope": float(fit.slope),
+        "r2": float(fit.rvalue**2),
+    }
 
 
 def transform_points(x_values, y_values, mode):
     if len(x_values) == 0 or len(y_values) == 0:
         return []
 
-    plot_df = pd.DataFrame({"x": x_values, "y": y_values})
-    plot_df["x"] = pd.to_numeric(plot_df["x"])
-    plot_df["y"] = pd.to_numeric(plot_df["y"])
-    jitterx = get_jitter_amount(plot_df["x"])
-    jittery = get_jitter_amount(plot_df["y"])
+    x, y = to_numeric_arrays(x_values, y_values)
 
     if mode == "jitter":
-        plot_df["x"] = plot_df["x"] + pd.Series(
-            [random.uniform(-jitterx, jitterx) for _ in plot_df.index],
-            index=plot_df.index,
-        )
-        plot_df["y"] = plot_df["y"] + pd.Series(
-            [random.uniform(-jittery, jittery) for _ in plot_df.index],
-            index=plot_df.index,
-        )
-        plot_df["size"] = 2.5
-        return plot_df.to_dict(orient="records")
+        jitterx = get_jitter_amount(x)
+        jittery = get_jitter_amount(y)
+        x = x + np.random.uniform(-jitterx, jitterx, size=x.size)
+        y = y + np.random.uniform(-jittery, jittery, size=y.size)
+        return [{"x": float(xi), "y": float(yi), "size": 2.5} for xi, yi in zip(x, y)]
 
     if mode == "heatmap":
-        heatmap_df = plot_df.groupby(["x", "y"]).size().reset_index(name="count")
-        return heatmap_df.to_dict(orient="records")
+        heatmap_counts = Counter(zip(x.tolist(), y.tolist()))
+        return [
+            {"x": float(xi), "y": float(yi), "count": count}
+            for (xi, yi), count in sorted(heatmap_counts.items())
+        ]
 
-    plot_df["size"] = 2.5
-    return plot_df.to_dict(orient="records")
+    return [{"x": float(xi), "y": float(yi), "size": 2.5} for xi, yi in zip(x, y)]
 
 
 @app.route("/")
@@ -71,12 +91,9 @@ def index():
         )
         + " FROM placementdata.csv"
     )
-    filter_ranges_results = duckdb.sql(filter_ranges_query).df().iloc[0]
+    filter_ranges_results = duckdb.sql(filter_ranges_query).fetchone()
     filter_ranges = {
-        column: [
-            filter_ranges_results[f"min_{index}"],
-            filter_ranges_results[f"max_{index}"],
-        ]
+        column: [filter_ranges_results[index * 2], filter_ranges_results[index * 2 + 1]]
         for index, column in enumerate(continuous_columns)
     }
     # pick default scatterplot columns
@@ -146,18 +163,15 @@ def update():
       GROUP BY facet_value
       ORDER BY facet_value
   '''
+    query_results = duckdb.sql(facet_query).fetchall()
 
-    facet_results = duckdb.sql(facet_query).df()
-    facets = []
-    for _, facet_row in facet_results.iterrows():
-        facets.append(
-            {
-                "label": str(facet_row["facet_value"]),
-                "data": transform_points(
-                    facet_row["x_values"], facet_row["y_values"], display_mode
-                ),
-            }
-        )
+    facets = [
+        {
+            "label": str(facet_value),
+            "trendline": build_trendline(x_values, y_values),
+            "data": transform_points(x_values, y_values, display_mode),
+        }
+        for facet_value, x_values, y_values in query_results]
 
     return {"facets": facets}
 

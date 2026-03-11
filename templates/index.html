@@ -1,53 +1,178 @@
+<!DOCTYPE html>
 <html>
 <header>
-    <title>ForestFires</title>
+    <title>Student Outcomes</title>
     <link href="static/css/nouislider.min.css" rel="stylesheet">
     <link rel="stylesheet" type="text/css" href="static/css/style.css" media="screen" />
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="static/js/nouislider.min.js"></script>
     <script src="static/js/script.js"></script>
 </header>
+
 <body>
-  <div class = "container">
-    <div style="float: left">
-      <div><h1>Forest Fires</h1><div id="scatter"></div></div>
-      <div><h1>Number of Forest Fires by Month</h1><div id="bar"></div></div>
+  <div class="container" style="border: 1px solid gray; padding: 15px; width: 1250px; margin: 0 auto;">
+
+    <!-- top controls -->
+    <div style="margin-bottom: 20px;">
+      <label>x:</label>
+      <select id="x-select" onchange="update_all()">
+        {% for col in continuous_columns %}
+          <option value="{{ col }}" {% if col == default_x %}selected{% endif %}>{{ col }}</option>
+        {% endfor %}
+      </select>
+
+      <label style="margin-left: 20px;">y:</label>
+      <select id="y-select" onchange="update_all()">
+        {% for col in continuous_columns %}
+          <option value="{{ col }}" {% if col == default_y %}selected{% endif %}>{{ col }}</option>
+        {% endfor %}
+      </select>
+
+      <label style="margin-left: 20px;">Facet:</label>
+      <select id="facet-select" onchange="update_all()">
+        {% for col in discrete_columns %}
+          <option value="{{ col }}" {% if col == "PlacementStatus" %}selected{% endif %}>{{ col }}</option>
+        {% endfor %}
+      </select>
     </div>
 
-    <div style="float: left; margin-left: 50px;">
-      <div id="days" style="margin-top:10px">
-        <h3>Day</h3>
-        {% for day in days%}
-          <input type="checkbox" class="checkboxDays day-selected" value="{{day}}" onchange="update_checked(this)" checked ><label>{{day}}</label>
-        {% endfor %}
+    <!-- main content -->
+    <div style="display: flex; align-items: flex-start;">
+
+      <!-- left side: two scatterplots -->
+      <div style="display: flex; gap: 30px;">
+
+        <div>
+          <div id="facet-left-title" style="text-align: center; font-size: 20px; margin-bottom: 8px;">
+            PlacementStatus: Placed
+          </div>
+          <div id="scatter-left"></div>
+        </div>
+
+        <div>
+          <div id="facet-right-title" style="text-align: center; font-size: 20px; margin-bottom: 8px;">
+            PlacementStatus: NotPlaced
+          </div>
+          <div id="scatter-right"></div>
+        </div>
+
       </div>
 
-      <h3>Humidity</h3><div id="humidity-slider" style="width:400pt; display: inline-block"></div>
-      <h3>Temperature</h3><div id="temp-slider" style="width:400pt; display: inline-block"></div>
-      <h3>Wind</h3><div id="wind-slider" style="width:400pt; display: inline-block"></div>
+      <!-- right side: filters -->
+      <div style="margin-left: 35px; width: 250px;">
+
+        <div style="margin-bottom: 25px;">
+          <h3>Internships</h3>
+          <div id="Internships-slider" style="width:220px;"></div>
+        </div>
+
+        <div style="margin-bottom: 25px;">
+          <h3>Projects</h3>
+          <div id="Projects-slider" style="width:220px;"></div>
+        </div>
+
+        <div style="margin-bottom: 25px;">
+          <h3>AptitudeTestScore</h3>
+          <div id="AptitudeTestScore-slider" style="width:220px;"></div>
+        </div>
+
+        <div style="margin-bottom: 25px;">
+          <h3>SoftSkillsRating</h3>
+          <div id="SoftSkillsRating-slider" style="width:220px;"></div>
+        </div>
+
+        <div style="margin-bottom: 25px;">
+          <h3>SSC_Marks</h3>
+          <div id="SSC_Marks-slider" style="width:220px;"></div>
+        </div>
+
+        <div style="margin-bottom: 25px;">
+          <h3>HSC_Marks</h3>
+          <div id="HSC_Marks-slider" style="width:220px;"></div>
+        </div>
+
+        <div style="margin-bottom: 25px;">
+          <h3>ExtracurricularActivities</h3>
+          <label style="margin-right: 20px;">
+            <input type="checkbox" data-column="ExtracurricularActivities" value="Yes" onchange="update_all()" checked>
+            Yes
+          </label>
+          <label>
+            <input type="checkbox" data-column="ExtracurricularActivities" value="No" onchange="update_all()" checked>
+            No
+          </label>
+        </div>
+
+        <div style="margin-bottom: 25px;">
+          <h3>PlacementTraining</h3>
+          <label style="margin-right: 20px;">
+            <input type="checkbox" data-column="PlacementTraining" value="Yes" onchange="update_all()" checked>
+            Yes
+          </label>
+          <label>
+            <input type="checkbox" data-column="PlacementTraining" value="No" onchange="update_all()" checked>
+            No
+          </label>
+        </div>
+
+      </div>
     </div>
   </div>
 </body>
 
 <script>
-  margin = {top: 45, right: 30, bottom: 30, left: 45},
-  width = 460 - margin.left - margin.right,
-  height = 360 - margin.top - margin.bottom;
+  const margin = {top: 20, right: 20, bottom: 60, left: 60};
+  const width = 420;
+  const height = 560;
 
-  scatter_svg = draw_svg('scatter', margin, width, height)
-  scatter_scale = draw_axes('scatter', scatter_svg, width, height, {{scatter_ranges[:2]}}, {{scatter_ranges[2:]}}, false)
-  bar_svg = draw_svg('bar', margin, width, height)
-  bar_scale = draw_axes('bar', bar_svg, width, height, {{months|safe}}, [0, {{max_count}}], true)
+  window.plot_width = width;
+  window.plot_height = height;
 
-  {% for column, (min,max) in filter_ranges.items() %}
-    draw_slider('{{column}}', {{min}}, {{max}}, scatter_svg, bar_svg, scatter_scale, bar_scale)
+  window.left_scatter_svg = draw_svg('scatter-left', margin, width, height);
+  window.right_scatter_svg = draw_svg('scatter-right', margin, width, height);
+
+  window.left_scatter_scale = draw_axes(
+    'scatter-left',
+    window.left_scatter_svg,
+    width,
+    height,
+    {{ scatter_ranges[:2] | tojson }},
+    {{ scatter_ranges[2:] | tojson }},
+    false
+  );
+
+  window.right_scatter_scale = draw_axes(
+    'scatter-right',
+    window.right_scatter_svg,
+    width,
+    height,
+    {{ scatter_ranges[:2] | tojson }},
+    {{ scatter_ranges[2:] | tojson }},
+    false
+  );
+
+  draw_axis_labels(
+    'scatter-left',
+    window.left_scatter_svg,
+    width,
+    height,
+    '{{ default_x }}',
+    '{{ default_y }}'
+  );
+
+  draw_axis_labels(
+    'scatter-right',
+    window.right_scatter_svg,
+    width,
+    height,
+    '{{ default_x }}',
+    '{{ default_y }}'
+  );
+
+  {% for column, minmax in filter_ranges.items() %}
+    draw_slider('{{ column }}', {{ minmax[0] }}, {{ minmax[1] }});
   {% endfor %}
 
-  update(scatter_svg, bar_svg, scatter_scale, bar_scale)
-  function update_checked(checkbox){
-    checkbox.classList.toggle('day-selected')
-    update(scatter_svg, bar_svg, scatter_scale, bar_scale)
-  }
-
+  update_all();
 </script>
 </html>

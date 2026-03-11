@@ -47,6 +47,32 @@ function draw_axis(plot_name, axis, svg, height, domain, range, discrete) {
     return scale;
 }
 
+function draw_axis_labels(plot_name, svg, width, height, x_label, y_label) {
+    // x label
+    svg.append("text")
+        .attr("class", plot_name + "-xlabel")
+        .attr("x", width / 2)
+        .attr("y", height + 40)
+        .attr("text-anchor", "middle")
+        .style("font-size", "14px")
+        .text(x_label);
+
+    // y label
+    svg.append("text")
+        .attr("class", plot_name + "-ylabel")
+        .attr("transform", "rotate(-90)")
+        .attr("x", -height / 2)
+        .attr("y", -40)
+        .attr("text-anchor", "middle")
+        .style("font-size", "14px")
+        .text(y_label);
+}
+
+function update_axis_labels(plot_name, svg, x_label, y_label) {
+    svg.select("." + plot_name + "-xlabel").text(x_label);
+    svg.select("." + plot_name + "-ylabel").text(y_label);
+}
+
 function draw_axes(
     plot_name,
     svg,
@@ -77,82 +103,141 @@ function draw_axes(
     return { x: x_scale, y: y_scale };
 }
 
-function draw_slider(
-    column,
-    min,
-    max,
-    left_scatter_svg,
-    right_scatter_svg,
-    left_scatter_scale,
-    right_scatter_scale,
-) {
-    slider = document.getElementById(column + "-slider");
+// -------------------- AXIS UPDATES --------------------
+
+function update_axes(plot_name, svg, height, scale) {
+    svg.select("." + plot_name + "-xaxis")
+        .transition()
+        .duration(300)
+        .call(d3.axisBottom(scale.x));
+
+    svg.select("." + plot_name + "-yaxis")
+        .transition()
+        .duration(300)
+        .call(d3.axisLeft(scale.y));
+}
+
+function get_domain_from_data(data, index) {
+    if (!data || data.length === 0) {
+        return [0, 1];
+    }
+
+    const values = data.map(d => +d[index]);
+    let min = d3.min(values);
+    let max = d3.max(values);
+
+    if (min === max) {
+        min = min - 1;
+        max = max + 1;
+    }
+
+    return [min, max];
+}
+
+function make_new_scale(width, height, data) {
+    const x_domain = get_domain_from_data(data, 0);
+    const y_domain = get_domain_from_data(data, 1);
+
+    return {
+        x: d3.scaleLinear().domain(x_domain).range([0, width]),
+        y: d3.scaleLinear().domain(y_domain).range([height, 0]),
+    };
+}
+
+function draw_slider(column, min, max) {
+    const slider = document.getElementById(column + "-slider");
+    if (!slider) return;
+
     noUiSlider.create(slider, {
         start: [min, max],
-        connect: false,
+        connect: true,
         tooltips: true,
         step: 1,
         range: { min: min, max: max },
     });
+
     slider.noUiSlider.on("change", function () {
-        update(
-            left_scatter_svg,
-            right_scatter_svg,
-            left_scatter_scale,
-            right_scatter_scale,
-        );
+        update_all();
     });
 }
 
 // Function that draws the scatterplot
 function draw_scatter(data, svg, scale) {
-    // get scale functions
-    scaleX = scale["x"];
-    scaleY = scale["y"];
-
-    // draw dots
+    const scaleX = scale.x;
+    const scaleY = scale.y;
     svg.selectAll(".dot")
-        .data(data)
-        .join("circle")
-        .attr("class", "dot")
-        .attr("cx", (d) => scaleX(d[0]))
-        .attr("cy", (d) => scaleY(d[1]))
-        .attr("r", 3)
-        .attr("fill", "red")
-        .attr("opacity", 0.8);
+       .data(data)
+       .join("circle")
+       .attr("class", "dot")
+       .attr("cx", d => scaleX(+d[0]))
+       .attr("cy", d => scaleY(+d[1]))
+       .attr("r", 2.5)
+       .attr("fill", "#1f77b4")
+}
+
+function update_scatter(plot_name, data, svg, width, height, x_label, y_label) {
+    svg.selectAll(".dot").remove();
+
+    const new_scale = make_new_scale(width, height, data);
+    update_axes(plot_name, svg, height, new_scale);
+    update_axis_labels(plot_name, svg, x_label, y_label);
+
+    draw_scatter(data, svg, new_scale);
+
+    return new_scale;
 }
 
 // Function that extracts the selected days and minimum/maximum values for each slider
-function get_params() {
-    // TODO: Discrete toggles (after they are defined on html side)
+// -------------------- PARAMS --------------------
 
-    // get min and max values from all continuous-column sliders
-    var params = {};
+function get_selected_discrete_values(column) {
+    const checked = document.querySelectorAll(`input[data-column="${column}"]:checked`);
+    return Array.from(checked).map(cb => cb.value);
+}
+
+function get_params() {
+    const params = {};
+
+    // dropdowns
+    params["x_column"] = document.getElementById("x-select").value;
+    params["y_column"] = document.getElementById("y-select").value;
+    params["facet"] = document.getElementById("facet-select").value;
+
+    // sliders
     continuous_columns.forEach(function (column) {
-        var slider = document.getElementById(column + "-slider");
+        const slider = document.getElementById(column + "-slider");
         if (slider && slider.noUiSlider) {
-            params[column] = slider.noUiSlider.get();
+            params[column] = slider.noUiSlider.get().map(Number);
         }
     });
+
+    // discrete filters
+    params["ExtracurricularActivities"] = get_selected_discrete_values("ExtracurricularActivities");
+    params["PlacementTraining"] = get_selected_discrete_values("PlacementTraining");
 
     return params;
 }
 
+
 // Function that removes the old data points and redraws the scatterplot
-function update_scatter(data, svg, scale) {
-    // remove old points
-    svg.selectAll(".dot").remove();
-    // draw new points
-    draw_scatter(data, svg, scale);
+//function update_scatter(data, svg, scale) {
+//    // remove old points
+//    svg.selectAll(".dot").remove();
+//    // draw new points
+//    draw_scatter(data, svg, scale);
+//}
+function update_all() {
+    update(
+        window.left_scatter_svg,
+        window.right_scatter_svg,
+        window.plot_width,
+        window.plot_height
+    );
 }
 
-function update(
-    left_scatter_svg,
-    right_scatter_svg,
-    left_scatter_scale,
-    right_scatter_scale,
-) {
-    params = get_params();
+function update(left_scatter_svg, right_scatter_svg, width, height) {
+    const params = get_params();
+
     fetch("/update", {
         method: "POST",
         credentials: "include",
@@ -161,17 +246,34 @@ function update(
         headers: new Headers({
             "content-type": "application/json",
         }),
-    }).then(async function (response) {
-        var results = JSON.parse(JSON.stringify(await response.json()));
-        update_scatter(
+    })
+    .then(async function (response) {
+        const results = await response.json();
+
+        window.left_scatter_scale = update_scatter(
+            "scatter-left",
             results["facet_left_data"],
             left_scatter_svg,
-            left_scatter_scale,
+            width,
+            height,
+            params["x_column"],
+            params["y_column"]
         );
-        update_scatter(
+
+        window.right_scatter_scale = update_scatter(
+            "scatter-right",
             results["facet_right_data"],
             right_scatter_svg,
-            right_scatter_scale,
+            width,
+            height,
+            params["x_column"],
+            params["y_column"]
         );
+
+        d3.select("#facet-left-title")
+            .text(params["facet"] + ": " + (results["facet_left_label"] || ""));
+
+        d3.select("#facet-right-title")
+            .text(params["facet"] + ": " + (results["facet_right_label"] || ""));
     });
 }

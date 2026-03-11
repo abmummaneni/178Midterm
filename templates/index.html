@@ -54,6 +54,7 @@
             PlacementStatus: Placed
           </div>
           <div id="scatter-left"></div>
+          <div id="facet-left-info" style="margin-top: 12px; padding: 12px; width: 500px; border: 1px solid #d0d0d0; background: #ffffff; font-size: 13px; line-height: 1.5; box-sizing: border-box; white-space: pre-line;"></div>
         </div>
 
         <div>
@@ -61,6 +62,7 @@
             PlacementStatus: NotPlaced
           </div>
           <div id="scatter-right"></div>
+          <div id="facet-right-info" style="margin-top: 12px; padding: 12px; width: 500px; border: 1px solid #d0d0d0; background: #ffffff; font-size: 13px; line-height: 1.5; box-sizing: border-box; white-space: pre-line;"></div>
         </div>
 
       </div>
@@ -144,8 +146,7 @@
     width,
     height,
     {{ scatter_ranges[:2] | tojson }},
-    {{ scatter_ranges[2:] | tojson }},
-    false
+    {{ scatter_ranges[2:] | tojson }}
   );
 
   window.right_scatter_scale = draw_axes(
@@ -154,8 +155,7 @@
     width,
     height,
     {{ scatter_ranges[:2] | tojson }},
-    {{ scatter_ranges[2:] | tojson }},
-    false
+    {{ scatter_ranges[2:] | tojson }}
   );
 
   draw_axis_labels(

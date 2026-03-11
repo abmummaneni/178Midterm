@@ -24,13 +24,37 @@ discrete_columns = [
 
 def get_jitter_amount(series):
     spread = np.ptp(series)
-    return float(spread * 0.01 if spread else 0.1)
+    return float(spread * 0.03 if spread else 0.1)
 
 
 def to_numeric_arrays(x_values, y_values):
     x = np.asarray(x_values, dtype=float)
     y = np.asarray(y_values, dtype=float)
     return x, y
+
+
+def summarize_axis(values):
+    return {
+        "min": float(values.min()),
+        "max": float(values.max()),
+        "mean": float(values.mean()),
+        "median": float(np.median(values)),
+        "std": float(values.std()),
+    }
+
+
+def build_stats(x_values, y_values):
+    if len(x_values) == 0 or len(y_values) == 0:
+        return None
+
+    x, y = to_numeric_arrays(x_values, y_values)
+    pearson_r = 0.0 if np.all(x == x[0]) or np.all(y == y[0]) else float(np.corrcoef(x, y)[0, 1])
+    return {
+        "count": int(x.size),
+        "x": summarize_axis(x),
+        "y": summarize_axis(y),
+        "pearson_r": pearson_r,
+    }
 
 
 def build_trendline(x_values, y_values):
@@ -63,8 +87,8 @@ def transform_points(x_values, y_values, mode):
     if mode == "jitter":
         jitterx = get_jitter_amount(x)
         jittery = get_jitter_amount(y)
-        x = x + np.random.uniform(-jitterx, jitterx, size=x.size)
-        y = y + np.random.uniform(-jittery, jittery, size=y.size)
+        x = x + np.random.normal(0, jitterx, size=x.size)
+        y = y + np.random.normal(0, jittery, size=y.size)
         return [{"x": float(xi), "y": float(yi), "size": 2.5} for xi, yi in zip(x, y)]
 
     if mode == "heatmap":
@@ -168,10 +192,12 @@ def update():
     facets = [
         {
             "label": str(facet_value),
+            "stats": build_stats(x_values, y_values),
             "trendline": build_trendline(x_values, y_values),
             "data": transform_points(x_values, y_values, display_mode),
         }
-        for facet_value, x_values, y_values in query_results]
+        for facet_value, x_values, y_values in query_results
+    ]
 
     return {"facets": facets}
 

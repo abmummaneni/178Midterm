@@ -147,7 +147,7 @@ function draw_scatter(data, svg, scale) {
         .attr("cx", (d) => scale.x(+d.x))
         .attr("cy", (d) => scale.y(+d.y))
         .attr("r", (d) =>
-            displayMode === "heatmap" ? +(d.count * 0.05 + 2.5) : 2.5,
+            displayMode === "heatmap" ? +(d.count * 0.05 + 2.5) : 3,
         )
         .attr("fill", (d) =>
             colorScale ? colorScale(+(d.count || 1)) : "#1f77b4",

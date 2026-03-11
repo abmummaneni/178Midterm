@@ -42,10 +42,24 @@ def index():
         ]
         for index, column in enumerate(continuous_columns)
     }
+    # pick default scatterplot columns
+    default_x = "CGPA"
+    default_y = "AptitudeTestScore"
+
+    # [x_min, x_max, y_min, y_max]
+    scatter_ranges = [
+        filter_ranges[default_x][0],
+        filter_ranges[default_x][1],
+        filter_ranges[default_y][0],
+        filter_ranges[default_y][1],
+    ]
 
     return render_template(
         "index.html",
         filter_ranges=filter_ranges,
+        scatter_ranges=scatter_ranges,
+        default_x=default_x,
+        default_y=default_y,
     )
 
 

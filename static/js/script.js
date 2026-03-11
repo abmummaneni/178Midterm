@@ -223,6 +223,73 @@ function draw_trendline(trendline, svg, scale) {
         });
 }
 
+function render_random_forest(result) {
+    const status = d3.select("#rf-status");
+    const chart = d3.select("#rf-chart");
+    chart.selectAll("*").remove();
+
+    if (!result || result.status !== "ok") {
+        status.text((result && result.message) || "Random forest unavailable.");
+        return;
+    }
+
+    status.text(`Trained on ${result.sample_count} filtered rows.`);
+
+    const margin = { top: 10, right: 30, bottom: 30, left: 180 };
+    const width = 1030 - margin.left - margin.right;
+    const barHeight = 28;
+    const height =
+        result.feature_importances.length * barHeight +
+        margin.top +
+        margin.bottom;
+    const svg = chart
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height)
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+    const x = d3
+        .scaleLinear()
+        .domain([
+            0,
+            d3.max(result.feature_importances, (d) => d.importance) || 0,
+        ])
+        .nice()
+        .range([0, width]);
+    const y = d3
+        .scaleBand()
+        .domain(result.feature_importances.map((d) => d.feature))
+        .range([0, result.feature_importances.length * barHeight])
+        .padding(0.25);
+
+    svg.append("g").call(d3.axisLeft(y).tickSize(0));
+    svg.append("g")
+        .attr(
+            "transform",
+            `translate(0,${result.feature_importances.length * barHeight})`,
+        )
+        .call(d3.axisBottom(x));
+
+    svg.selectAll(".rf-bar")
+        .data(result.feature_importances)
+        .join("rect")
+        .attr("class", "rf-bar")
+        .attr("x", 0)
+        .attr("y", (d) => y(d.feature))
+        .attr("width", (d) => x(d.importance))
+        .attr("height", y.bandwidth())
+        .attr("fill", "#1f77b4");
+
+    svg.selectAll(".rf-label")
+        .data(result.feature_importances)
+        .join("text")
+        .attr("class", "rf-label")
+        .attr("x", (d) => x(d.importance) + 8)
+        .attr("y", (d) => y(d.feature) + y.bandwidth() / 2 + 4)
+        .style("font-size", "12px")
+        .text((d) => d.importance.toFixed(3));
+}
+
 function update_scatter(
     plot_name,
     facet,
@@ -279,17 +346,34 @@ function update_all() {
     update(window.plot_width, window.plot_height);
 }
 
+function train_random_forest() {
+    const status = d3.select("#rf-status");
+    status.text("Training random forest...");
+
+    fetch("/random_forest", {
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify(get_params()),
+        cache: "no-cache",
+        headers: new Headers({
+            "content-type": "application/json",
+        }),
+    }).then(async function (response) {
+        render_random_forest(await response.json());
+    });
+}
+
 function formatStat(value) {
     return Number.isFinite(value) ? value.toFixed(2) : "n/a";
 }
 
 function formatStatsHtml(facet, params) {
     if (!facet.stats) {
-        return "<div><strong>Data points:</strong> 0</div>";
+        return "<div><strong>Facet points:</strong> 0 / 0</div>";
     }
 
     return [
-        `<div><strong>Num Points:</strong> ${facet.stats.count}</div>`,
+        `<div><strong>Facet points:</strong> ${facet.stats.count} / ${facet.stats.total_count}</div>`,
         `<div><strong>Pearson correlation (r):</strong> ${formatStat(facet.stats.pearson_r)}</div>`,
         `<div><strong>${params.x_column}:</strong> min ${formatStat(facet.stats.x.min)}, max ${formatStat(facet.stats.x.max)}, mean ${formatStat(facet.stats.x.mean)}, median ${formatStat(facet.stats.x.median)}, std ${formatStat(facet.stats.x.std)}</div>`,
         `<div><strong>${params.y_column}:</strong> min ${formatStat(facet.stats.y.min)}, max ${formatStat(facet.stats.y.max)}, mean ${formatStat(facet.stats.y.mean)}, median ${formatStat(facet.stats.y.median)}, std ${formatStat(facet.stats.y.std)}</div>`,

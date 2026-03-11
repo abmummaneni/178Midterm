@@ -3,6 +3,7 @@ import duckdb
 import numpy as np
 from scipy.stats import linregress
 from collections import Counter
+from sklearn.ensemble import RandomForestClassifier
 
 app = Flask(__name__)
 continuous_columns = [
@@ -20,17 +21,28 @@ discrete_columns = [
     "PlacementTraining",
     "PlacementStatus",
 ]
+model_feature_columns = continuous_columns + [
+    "ExtracurricularActivities",
+    "PlacementTraining",
+]
 
 
 def get_jitter_amount(series):
     spread = np.ptp(series)
-    return float(spread * 0.03 if spread else 0.1)
+    return float(spread * 0.05 if spread else 0.1)
 
 
 def to_numeric_arrays(x_values, y_values):
     x = np.asarray(x_values, dtype=float)
     y = np.asarray(y_values, dtype=float)
     return x, y
+
+
+def encode_binary_feature(values):
+    values = np.asarray(values)
+    if values.dtype == np.bool_:
+        return values.astype(float)
+    return np.isin(np.char.lower(values.astype(str)), ["yes", "true"]).astype(float)
 
 
 def summarize_axis(values):
@@ -43,7 +55,7 @@ def summarize_axis(values):
     }
 
 
-def build_stats(x_values, y_values):
+def build_stats(x_values, y_values, total_count):
     if len(x_values) == 0 or len(y_values) == 0:
         return None
 
@@ -51,6 +63,7 @@ def build_stats(x_values, y_values):
     pearson_r = 0.0 if np.all(x == x[0]) or np.all(y == y[0]) else float(np.corrcoef(x, y)[0, 1])
     return {
         "count": int(x.size),
+        "total_count": int(total_count),
         "x": summarize_axis(x),
         "y": summarize_axis(y),
         "pearson_r": pearson_r,
@@ -99,6 +112,69 @@ def transform_points(x_values, y_values, mode):
         ]
 
     return [{"x": float(xi), "y": float(yi), "size": 2.5} for xi, yi in zip(x, y)]
+
+
+def build_predicate(request_data):
+    continuous_clauses = []
+    for column in continuous_columns:
+        if column in request_data:
+            min_val = float(request_data[column][0])
+            max_val = float(request_data[column][1])
+            continuous_clauses.append(
+                f'("{column}" >= {min_val} AND "{column}" <= {max_val})'
+            )
+
+    discrete_clauses = []
+    for column in discrete_columns:
+        if column in request_data:
+            if not request_data[column]:
+                return None
+            values = ", ".join([f"'{value}'" for value in request_data[column]])
+            discrete_clauses.append(f'"{column}" IN ({values})')
+
+    predicate_parts = continuous_clauses + discrete_clauses
+    return " AND ".join(predicate_parts) if predicate_parts else "TRUE"
+
+
+def build_random_forest_result(filtered_data):
+    row_count = len(filtered_data["PlacementStatus"])
+    if row_count < 2:
+        return {"status": "unavailable", "message": "Not enough filtered rows."}
+
+    y_labels = np.asarray(filtered_data["PlacementStatus"])
+    if np.unique(y_labels).size < 2:
+        return {
+            "status": "unavailable",
+            "message": "Filtered data needs both placed and not placed rows.",
+        }
+
+    x = np.column_stack(
+        [
+            np.asarray(filtered_data[column], dtype=float)
+            for column in continuous_columns
+        ]
+        + [
+            encode_binary_feature(filtered_data[column])
+            for column in ("ExtracurricularActivities", "PlacementTraining")
+        ]
+    )
+    y = (y_labels == "Placed").astype(int)
+
+    model = RandomForestClassifier(n_estimators=200, random_state=0)
+    model.fit(x, y)
+
+    return {
+        "status": "ok",
+        "sample_count": row_count,
+        "feature_importances": [
+            {"feature": column, "importance": float(importance)}
+            for column, importance in sorted(
+                zip(model_feature_columns, model.feature_importances_),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+        ],
+    }
 
 
 @app.route("/")
@@ -151,31 +227,9 @@ def update():
     y_column = request_data["y_column"]
     facet = request_data["facet"]
     display_mode = request_data.get("display_mode", "scatter")
-
-    # Continuous filters: only use columns that were actually sent
-    continuous_clauses = []
-    for column in continuous_columns:
-        if column in request_data:
-            min_val = float(request_data[column][0])
-            max_val = float(request_data[column][1])
-            continuous_clauses.append(
-                f'("{column}" >= {min_val} AND "{column}" <= {max_val})'
-            )
-
-    # Discrete filters
-    discrete_clauses = []
-    for column in discrete_columns:
-        if column in request_data:
-            if not request_data[column]:
-                # If column has no values (both yes and no are unchecked)
-                # Return no data
-                return {"facets": []}
-
-            values = ", ".join([f"'{value}'" for value in request_data[column]])
-            discrete_clauses.append(f'"{column}" IN ({values})')
-
-    predicate_parts = continuous_clauses + discrete_clauses
-    predicate = " AND ".join(predicate_parts) if predicate_parts else "TRUE"
+    predicate = build_predicate(request_data)
+    if predicate is None:
+        return {"facets": []}
 
     facet_query = f'''
       SELECT
@@ -188,11 +242,12 @@ def update():
       ORDER BY facet_value
   '''
     query_results = duckdb.sql(facet_query).fetchall()
+    total_count = sum(len(x_values) for _, x_values, _ in query_results)
 
     facets = [
         {
             "label": str(facet_value),
-            "stats": build_stats(x_values, y_values),
+            "stats": build_stats(x_values, y_values, total_count),
             "trendline": build_trendline(x_values, y_values),
             "data": transform_points(x_values, y_values, display_mode),
         }
@@ -200,6 +255,26 @@ def update():
     ]
 
     return {"facets": facets}
+
+
+@app.route("/random_forest", methods=["POST"])
+def random_forest():
+    request_data = request.get_json()
+    predicate = build_predicate(request_data)
+    if predicate is None:
+        return {
+            "status": "unavailable",
+            "message": "No data available for the current filters.",
+        }
+
+    model_query = (
+        "SELECT "
+        + ", ".join(
+            [f'"{column}"' for column in model_feature_columns + ["PlacementStatus"]]
+        )
+        + f" FROM 'placementdata.csv' WHERE {predicate}"
+    )
+    return build_random_forest_result(duckdb.sql(model_query).fetchnumpy())
 
 
 if __name__ == "__main__":
